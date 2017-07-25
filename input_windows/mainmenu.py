@@ -45,7 +45,7 @@ class MainMenu:
                                 'Environment (CapSim ' + self.version + ')\n\n(c)'   +
                                 ' 2017 Xiaolong Shen, David Lampert, Xin Zhang and '     +
                                 'Danny Reible\n\n'    +
-                                'Unauthorized use prohibited\n\n Last Updates Apr 27 2017\n', justify = 'left')
+                                'Unauthorized use prohibited\n\n Last Updates Jul 24 2017\n', justify = 'left')
         self.inst       = Label(self.frame, text = 'Please choose from the '  +
                                 'following selections:\n')
         self.newbutton  = Button(self.frame, text = 'Create new input file',

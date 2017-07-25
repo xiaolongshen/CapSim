@@ -23,7 +23,7 @@
 #Department of Civil, Architectural and Environmental Engineering      #
 #The University of Texas at Austin                                     #
 #                                                                      #
-#Last Updated: 6/20/2017 by XS                                         #
+#Last Updated: 7/24/2017 by XS                                         #
 #                                                                      #
 ########################################################################
 
@@ -202,7 +202,9 @@ while(1):
                     print(component.mfraction)
 
         # updates from version 3.5
-        try: a = system.BCs[system.chemicals[0].name].tau
+        try: 
+            a = system.BCs[system.chemicals[0].name].tau
+            a = system.taucoefs
         except:
             system.taucoefs           = {}
             system.taucoefs['Q']      = 1.

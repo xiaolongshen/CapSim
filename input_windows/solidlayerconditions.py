@@ -129,13 +129,7 @@ class SolidLayerConditions:
                     if self.sorptions[component.name][chemical.name].kinetic == 'Transient':
                         self.SolidICs[layer.name][component.name][chemical.name].propertieswidgets(self.frame, row, column)
                     else:
-                        try: self.SolidICs[layer.name][component.name][chemical.name].blankwidgets(self.frame, row, column)
-                        except:
-                            print(layer.name)
-                            print(component.name)
-                            print(chemical.name)
-                            print(self.sorptions[component.name][chemical.name].kinetic)
-                            a = b
+                        self.SolidICs[layer.name][component.name][chemical.name].blankwidgets(self.frame, row, column)
                     column = column + 1
                 component.SolidICswidgets(self.frame, row)
                 if (int(component.SolidICswidget.winfo_reqwidth()/8*1.1424219345) + 1) > componentlabellength: componentlabellength = int(component.SolidICswidget.winfo_reqwidth()/8*1.1424219345) + 1

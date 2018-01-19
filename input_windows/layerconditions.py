@@ -12,7 +12,7 @@ else: path = sys.path[0]
 from Tkinter             import Frame, Label, Entry, OptionMenu, Button, Text, DoubleVar, StringVar, IntVar, FLAT, RAISED
 from capsim_object_types import CapSimWindow, BC, IC, SolidIC
 from capsim_functions    import kblriver, kbllake, tauwater, get_superfont, round_to_n
-from benthicboundary     import KblEstimator, TauEstimator
+from benthicboundary     import KblEstimator, TauEstimator, TauChemicalEditor
 import tkMessageBox as tkmb
 
 class LayerConditions:
@@ -87,8 +87,6 @@ class LayerConditions:
             self.taucoefs['h']      = 1.
             self.taucoefs['DOC']    = 0.
             self.taucoefs['Qevap']  = 0.
-            self.taucoefs['Decay']  = 'None'
-            self.taucoefs['Evap']   = 'None'
 
         if system.ICs == None:
             self.ICs = {}
@@ -97,18 +95,30 @@ class LayerConditions:
                 for chemical in self.chemicals:
                     self.ICs[layer.name][chemical.name] = IC(layer.name, chemical.name)
         else:
-            self.ICs        = system.ICs                
+            self.ICs        = system.ICs
 
         if system.BCs == None:
             self.BCs = {}
             self.topBCtype      = StringVar(value = self.topBCtypes[0])
             self.botBCtype      = StringVar(value = self.topBCtypes[0])
             for chemical in self.chemicals:
-                self.BCs[chemical.name] = BC(chemical.name, chemical.soluable)
+                self.BCs[chemical.name] = BC(chemical.name)
         else:
             self.BCs        = system.BCs
             self.topBCtype  = StringVar(value = system.topBCtype) 
             self.botBCtype  = StringVar(value = system.botBCtype) 
+
+        for layer in system.layers:
+            for chemical in self.chemicals:
+                self.ICs[layer.name][chemical.name].uniform = DoubleVar(value = self.ICs[layer.name][chemical.name].uniform)
+                self.ICs[layer.name][chemical.name].top     = DoubleVar(value = self.ICs[layer.name][chemical.name].top)
+                self.ICs[layer.name][chemical.name].bot     = DoubleVar(value = self.ICs[layer.name][chemical.name].bot)
+
+        for chemical in self.chemicals:
+            self.BCs[chemical.name].Co                      = DoubleVar(value = self.BCs[chemical.name].Co)
+            self.BCs[chemical.name].k                       = DoubleVar(value = self.BCs[chemical.name].k)
+            self.BCs[chemical.name].Cw                      = DoubleVar(value = self.BCs[chemical.name].Cw)
+            self.BCs[chemical.name].Cb                      = DoubleVar(value = self.BCs[chemical.name].Cb)
 
         self.lengthunits    = system.lengthunits
         self.concunits      = system.concunits
@@ -123,15 +133,18 @@ class LayerConditions:
         self.diff_factor = 1.
         self.k_factor    = 1.
         self.flux_factor = 0.001
+        self.h_factor    = 100
 
         if self.lengthunit == self.lengthunits[0]:
             self.diff_factor = self.diff_factor * (10000**2)
             self.k_factor    = self.k_factor * 10000
             self.flux_factor = self.flux_factor / (10000**2)
+            self.h_factor    = self.h_factor * 10000
         elif self.lengthunit == self.lengthunits[2]:
             self.diff_factor = self.diff_factor / (100**2)
             self.k_factor    = self.k_factor / 100
             self.flux_factor = self.flux_factor * (100**2)
+            self.h_factor    = self.h_factor/100
 
         if self.diffunit == system.diffunits[0]:
             if self.timeunit == self.timeunits[1]:
@@ -193,9 +206,8 @@ class LayerConditions:
 
         column = 5
         for chemical in self.chemicals:
-            if chemical.soluable == 1:
-                chemical.ICwidgets(self.frame, column)
-                column = column + 1
+            chemical.ICwidgets(self.frame, column)
+            column = column + 1
 
         self.endcolumn.grid(        row = 2, column = column, sticky = 'WE', padx = 1, pady = 1)
 
@@ -246,10 +258,8 @@ class LayerConditions:
             try:    self.BCs[chemical.name].remove_widgets()
             except: pass
 
-        for chemical in self.chemicals:
-            self.BCs[chemical.name].topBCtype = self.topBCtype.get()
-            self.BCs[chemical.name].botBCtype = self.botBCtype.get()
-        
+        if self.topBCtype.get() == 'Finite mixed water column': self.update_tau()
+
         row = 4
 
         self.topblankrow_1  =Label(self.frame, width = 1,  text = '' )
@@ -271,16 +281,15 @@ class LayerConditions:
 
             column = 5
             for chemical in self.chemicals:
-                if chemical.soluable == 1:
-                    self.BCs[chemical.name].topboundarywidget(self.frame, row, column)
-                    self.BCs[chemical.name].Co.trace('w', self.updateICs)
-                    column = column + 1
+                self.BCs[chemical.name].topboundarywidget(self.frame, row, column, self.topBCtype.get())
+                self.BCs[chemical.name].Co.trace('w', self.updateICs)
+                column = column + 1
             row = row + 2
 
         if self.topBCtype.get() == self.topBCtypes[1]:
             
             self.klabel      = Button(self.frame, width = 15,  text = 'Mass transfer coefficient', command = self.click_kbl)
-            self.kunitlabel  = Label(self.frame,  width = 5,   text = 'cm/hr')#self.lengthunit + '/'+ self.timeunit)
+            self.kunitlabel  = Label(self.frame,  width = 5,   text = 'cm/hr')
             self.Cwlabel     = Label(self.frame,  width = 15,  text = 'Water concentration')
             self.Cwunitlabel = Label(self.frame,  width = 5,   text = self.concunit)
             self.klabel.grid(           row = row,     column = 3, sticky = 'WE', padx = 1, pady = 1)
@@ -291,7 +300,7 @@ class LayerConditions:
             column = 5
             for chemical in self.chemicals:
                 if chemical.soluable == 1:
-                    self.BCs[chemical.name].topboundarywidget(self.frame, row, column)
+                    self.BCs[chemical.name].topboundarywidget(self.frame, row, column, self.topBCtype.get())
                     self.BCs[chemical.name].Cw.trace('w', self.updateICs)
                     column = column + 1
             row = row + 2
@@ -301,8 +310,8 @@ class LayerConditions:
             if self.CSTR_flag == 0:
                 self.klabel       = Button(self.frame,  width = 15,  text = 'Mass transfer coefficient', command = self.click_kbl)
                 self.kunitlabel   = Label( self.frame,  width = 5,   text = 'cm/hr')
-                self.taulabel     = Button(self.frame,  width = 15,  text = 'Initial water concentration', command = self.click_tau)
-                self.tauunitlabel = Label( self.frame,  width = 5,   text = self.concunit)
+                self.taulabel     = Button(self.frame,  width = 15,  text = 'Column residence time', command = self.click_tau)
+                self.tauunitlabel = Label( self.frame,  width = 5,   text = self.timeunit)
                 self.klabel.grid(           row = row,     column = 3, sticky = 'WE', padx = 1, pady = 0)
                 self.kunitlabel.grid(       row = row,     column = 4, sticky = 'WE', padx = 1, pady = 1)
                 self.taulabel.grid(         row = row + 1, column = 3, sticky = 'WE', padx = 1, pady = 0)
@@ -311,7 +320,7 @@ class LayerConditions:
                 column = 5
                 for chemical in self.chemicals:
                     if chemical.soluable == 1:
-                        self.BCs[chemical.name].topboundarywidget(self.frame, row, column)
+                        self.BCs[chemical.name].topboundarywidget(self.frame, row, column, self.topBCtype.get())
                         column = column + 1
                 row = row + 2
 
@@ -351,22 +360,17 @@ class LayerConditions:
         self.botBClabel.grid(           row = row, column = 1, sticky = 'WE', padx = 1, pady = 1)
         self.botBCtwidget.grid(         row = row, column = 2, sticky = 'WE', padx = 1, pady = 1)
 
+        self.Cblabel = Label(self.frame, width = 15,  text = 'Concentration')
+        self.Cbunitlabel = Label(self.frame, width = 5,  text = self.concunit)
+        self.Cblabel.grid(          row = row, column = 3, sticky = 'WE', padx = 1, pady = 1)
+        self.Cbunitlabel.grid(      row = row, column = 4, sticky = 'WE', padx = 1, pady = 1)
 
-        if self.botBCtype.get() == self.botBCtypes[0] or self.botBCtype.get() == self.botBCtypes[1]:
-            
-            self.Cblabel = Label(self.frame, width = 15,  text = 'Concentration')
-            self.Cbunitlabel = Label(self.frame, width = 5,  text = self.concunit)
-            self.Cblabel.grid(          row = row, column = 3, sticky = 'WE', padx = 1, pady = 1)
-            self.Cbunitlabel.grid(      row = row, column = 4, sticky = 'WE', padx = 1, pady = 1)
-
-            column = 5
-            for chemical in self.chemicals:
-                if chemical.soluable == 1:
-                    self.BCs[chemical.name].botboundarywidget(self.frame, row, column)
-                    column = column + 1
-            row = row + 1
-        else:
-            row = row + 1
+        column = 5
+        for chemical in self.chemicals:
+            if chemical.soluable == 1:
+                self.BCs[chemical.name].botboundarywidget(self.frame, row, column)
+                column = column + 1
+        row = row + 1
 
         self.blank1.grid(  row = row)
         self.focusbutton = None
@@ -377,11 +381,9 @@ class LayerConditions:
     def updateICs(self, event = None, *args):
 
         for layer in self.layers:
-            try:    layer.remove_ICwidgets()
-            except: pass
+            layer.remove_ICwidgets()
             for chemical in self.chemicals:
-                try: self.ICs[layer.name][chemical.name].remove_widgets()
-                except: pass
+                self.ICs[layer.name][chemical.name].remove_widgets()
 
         if self.layers[0].name != 'Deposition':
             row = 7
@@ -469,47 +471,26 @@ class LayerConditions:
                 self.taucoefs['h']      = self.top.window.h.get()
                 self.taucoefs['Qevap']  = self.top.window.Qevap.get()
                 self.taucoefs['DOC']    = self.top.window.doc.get()
-                self.taucoefs['Decay']  = self.top.window.Decay.get()
-                self.taucoefs['Evap']   = self.top.window.Evap.get()
 
-                Q = self.taucoefs['Q'] - self.taucoefs['Qevap'] + self.taucoefs['V'] / self.taucoefs['h'] * self.U
+                self.update_tau()
 
-                if self.dep == 'Deposition':
-                    if self.lengthunit == 'cm':         kdep  = self.layers[0].h/100
-                    elif self.lengthunit == u'\u03BCm': kdep  = self.layers[0].h/100/1000
-                    else:                               kdep  = self.layers[0].h
-                    matrix  = self.matrices[self.layers[0].type_index]
-                    epsilon = self.matrices[self.layers[0].type_index].e
-                    dep_rho = matrix.rho
-                    dep_fraction = []
-                    for component in matrix.components:
-                        dep_fraction.append(component.mfraction)
-                else:
-                    kdep = 0
-                    epsilon = 0
-                    dep_rho = 0
-                    dep_fraction = []
+            if self.top is not None:
+                self.top.destroy()
+                self.top = None
+
+            self.top = CapSimWindow(master = self.master, buttons = 2)
+            self.top.make_window(TauChemicalEditor(self.top, self.version, self.fonttype, self.timeunit, self.lengthunit, self.concunit, self.chemicals, self.BCs))
+            self.top.tk.mainloop()
+
+            if self.top.window.cancelflag == 0:
 
                 for n in range(len(self.chemicals)):
                     chemical = self.chemicals[n]
-                    self.BCs[chemical.name].kdecay = self.top.window.kdecays[n]
-                    self.BCs[chemical.name].kevap  = self.top.window.kevaps[n]
-                    self.BCs[chemical.name].Cw.set(self.top.window.Cinits[n])
+                    self.BCs[chemical.name].kdecay = self.top.window.kdecays[n].get()
+                    self.BCs[chemical.name].kevap  = self.top.window.kevaps[n].get()
+                    self.BCs[chemical.name].Cw.set(self.top.window.Cinits[n].get())
 
-                    if self.taucoefs['Evap'] == 'None':  kevap = 0
-                    else:                                kevap = self.top.window.kevaps[n]
-                    if self.taucoefs['Decay'] == 'None': kdecay = 0
-                    else:                                kdecay = self.top.window.kdecays[n]
-
-                    K = []
-                    if self.dep == 'Deposition':
-                        matrix  = self.matrices[self.layers[0].type_index]
-                        for component in matrix.components:
-                            if self.sorptions[component.name][chemical.name].isotherm == 'Linear--Kd specified': K.append(self.sorptions[component.name][chemical.name].K)
-                            elif self.sorptions[component.name][chemical.name].isotherm == 'Linear--Kocfoc': K.append(10**self.sorptions[component.name][chemical.name].Koc)
-
-                    self.BCs[chemical.name].tau = round_to_n(tauwater(Q, self.taucoefs['DOC'], chemical.Kdoc, kdep, epsilon, dep_rho, dep_fraction, K, self.taucoefs['V'], self.taucoefs['h'], kevap, kdecay),3)
-                    #except: tkmb.showerror(title = 'Math Error', message = 'The parameters you have entered produce a math error.  Please change the parameters and recalculate.')
+                self.update_tau()
 
             if self.top is not None:
                 self.top.destroy()
@@ -521,16 +502,46 @@ class LayerConditions:
 
         self.updateconditions()
 
+    def update_tau(self):
+
+        Q = self.taucoefs['Q'] - self.taucoefs['Qevap'] + self.taucoefs['V'] / self.taucoefs['h'] * self.U / self.h_factor
+
+        if self.dep == 'Deposition':
+            kdep  = self.layers[0].h/self.h_factor
+            matrix  = self.matrices[self.layers[0].type_index]
+            epsilon = self.matrices[self.layers[0].type_index].e
+            dep_rho = matrix.rho
+            dep_fraction = []
+            for component in matrix.components:
+                dep_fraction.append(component.mfraction)
+        else:
+            kdep = 0
+            epsilon = 0
+            dep_rho = 0
+            dep_fraction = []
+
+        for n in range(len(self.chemicals)):
+            chemical = self.chemicals[n]
+            kevap = self.BCs[chemical.name].kevap
+            kdecay = self.BCs[chemical.name].kdecay
+
+            K = []
+            if self.dep == 'Deposition':
+                matrix  = self.matrices[self.layers[0].type_index]
+                for component in matrix.components:
+                    if self.sorptions[component.name][chemical.name].isotherm == 'Linear--Kd specified': K.append(self.sorptions[component.name][chemical.name].K)
+                    elif self.sorptions[component.name][chemical.name].isotherm == 'Linear--Kocfoc': K.append(10**self.sorptions[component.name][chemical.name].Koc*component.foc)
+
+            self.BCs[chemical.name].tau = round_to_n(tauwater(Q, self.taucoefs['DOC'], chemical.Kdoc, kdep, epsilon, dep_rho, dep_fraction, K, self.taucoefs['V'], self.taucoefs['h'], kevap, kdecay),3)
 
     def error_check(self, event = None):
         """Finish and move on.  Checks that the number chemicals are less than the
         total number of chemicals in database."""
 
         error = 0
-
         if self.topBCtype.get() == 'Finite mixed water column':
             for chemical in self.chemicals:
-                if self.BCs[chemical.name].tau.get() <= 0:
+                if self.BCs[chemical.name].tau < 0:
                     error = 1
 
         return error
@@ -557,13 +568,12 @@ def get_layerconditions(system, step):
                 layer.get_layerconditions()
                 layer.remove_ICwidgets()
                 for chemical in system.chemicals:
-                    if chemical.soluable == 1:
-                        system.ICs[layer.name][chemical.name].remove_widgets()
+                    system.ICs[layer.name][chemical.name].remove_widgets()
 
             for chemical in system.chemicals:
-                if chemical.soluable == 1:
-                    chemical.remove_ICwidgets()
-                    system.BCs[chemical.name].remove_widgets()
+                chemical.remove_ICwidgets()
+                system.BCs[chemical.name].remove_widgets()
+
         else:
             system.ICs = None
             system.BCs = None
